@@ -1,0 +1,46 @@
+name: CD
+on:
+  push:
+    branches: [main]
+
+jobs:
+  terraform-apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform Init
+        run: terraform -chdir=terraform init
+      - name: Terraform Apply
+        run: terraform -chdir=terraform apply -auto-approve
+        env:
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+
+  schema-deploy:
+    runs-on: ubuntu-latest
+    needs: terraform-apply
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install schemachange
+        run: pip install -r requirements.txt
+
+      - name: Deploy Snowflake schema changes (bronze/silver/gold DDL + Snowpark sproc)
+        run: |
+          echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" > snowflake_key.p8
+          schemachange deploy \
+            --create-change-history-table \
+            -a "${{ secrets.SNOWFLAKE_ACCOUNT }}" \
+            -u "${{ secrets.SNOWFLAKE_USER }}" \
+            -r SYSADMIN \
+            -w TRANSFORM_WH \
+            --snowflake-private-key-path snowflake_key.p8
+          rm -f snowflake_key.p8
+        env:
+          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}

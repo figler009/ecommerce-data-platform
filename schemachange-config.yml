@@ -1,0 +1,16 @@
+config-version: 1
+
+root-folder: "sql"
+modules-folder: null
+
+# Connection details (account/user/role/warehouse) come from connections.toml
+# (the same file `snow` CLI uses) via the -C/--connection-name flag, so no
+# credentials live in this repo. Locally: -C trvoucb-skc77256
+# In CI: a connections.toml is generated from GitHub Actions Secrets.
+
+# Tracks which versioned scripts have already been applied.
+change-history-table: "RAW_DB.SCHEMACHANGE.CHANGE_HISTORY"
+
+vars:
+  bronze_database: "RAW_DB"
+  analytics_database: "ANALYTICS_DB"
