@@ -47,7 +47,9 @@ jobs:
       - name: Terraform Init
         run: terraform -chdir=terraform init
       - name: Terraform Plan
-        run: terraform -chdir=terraform plan -no-color
+        run: |
+          export SNOWFLAKE_PRIVATE_KEY="$(echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}" | base64 --decode)"
+          terraform -chdir=terraform plan -no-color
         env:
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}

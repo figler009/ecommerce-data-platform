@@ -12,7 +12,8 @@ provider "snowflake" {
   organization_name = "TRVOUCB"
   account_name      = "SKC77256"
   role              = "SYSADMIN"
-  # user/password (or other auth) are read from SNOWFLAKE_USER / SNOWFLAKE_PASSWORD env vars
+  authenticator     = "SNOWFLAKE_JWT"
+  # user/private_key are read from SNOWFLAKE_USER / SNOWFLAKE_PRIVATE_KEY env vars
 }
 
 # role/grant management requires SECURITYADMIN, not SYSADMIN
@@ -21,4 +22,5 @@ provider "snowflake" {
   organization_name  = "TRVOUCB"
   account_name       = "SKC77256"
   role               = "SECURITYADMIN"
+  authenticator      = "SNOWFLAKE_JWT"
 }
