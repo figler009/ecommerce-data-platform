@@ -33,7 +33,7 @@ jobs:
 
       - name: Deploy Snowflake schema changes (bronze/silver/gold DDL + Snowpark sproc)
         run: |
-          echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" > snowflake_key.p8
+          echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}" | base64 --decode > snowflake_key.p8
           schemachange deploy \
             --create-change-history-table \
             -a "${{ secrets.SNOWFLAKE_ACCOUNT }}" \

@@ -518,6 +518,47 @@ Keep `docs/data_dictionary.md` updated from these comments (can even script an e
 
 ---
 
+## Addendum — What Actually Happened Building This (Deviations From the Plan Above)
+
+Building this hands-on surfaced real gaps and gotchas the plan above glosses over. Keeping them here so the guide reflects what actually shipped, not just the idealized steps.
+
+### Phase 3 (Bronze)
+
+- **Step 3.4 gotcha:** `snow sql`'s boxed terminal table wraps long values character-by-character, which makes manually transcribing the pipe's `notification_channel` (SQS ARN) extremely error-prone — it silently produced a wrong ARN with transposed digits. Always pull it via `snow sql --format json ... | python3 -m json.tool` instead of reading the rendered table.
+- The storage integration's IAM policy (`snowflake_s3_access`, managed manually outside Terraform) had a stray space in its resource ARN and was missing `PutObject`/`DeleteObject` — `SELECT SYSTEM$VALIDATE_STORAGE_INTEGRATION('S3_INT', 's3://bucket/', 'test.json', 'ALL');` is the right diagnostic query (checks READ/WRITE/DELETE/LIST), though it does **not** validate the SQS queue policy behind S3 event notifications — that's separate.
+- **Recreating a storage integration rotates its `STORAGE_AWS_EXTERNAL_ID`** (confirmed live via schemachange re-applying `CREATE OR REPLACE STORAGE INTEGRATION`), which breaks the AWS IAM role's trust policy until it's updated to match the new `DESC INTEGRATION` output. The Snowpipe SQS queue ARN, however, does **not** change on `CREATE OR REPLACE PIPE` (Snowflake provisions one queue per AWS region), so S3 event notifications survive a pipe recreation.
+
+### Phase 4 (Silver)
+
+- `SILVER_ORDERS_SPROC`, called by `SILVER_ORDERS_TASK`, was never actually defined anywhere in the original plan. Implemented it by staging the Snowpark Python file (`PUT`) to a stage and running `CREATE PROCEDURE ... HANDLER = 'bronze_to_silver_orders.bronze_to_silver_orders'`.
+- Refactored `bronze_to_silver_orders.py` to split a pure `transform_bronze_events(df)` function (parsing/casting/filtering/dedup, no I/O) from the read/write wrapper — the original single-function version wasn't actually unit-testable, despite Phase 4's claim that Snowpark is "easier to unit-test."
+- **Real Snowflake's `TRY_CAST` rejects `VARIANT → NUMBER` directly** (only from string types) — Snowpark's local testing mock allowed it, but the real warehouse rejected it with a SQL compilation error. Fix: cast to string first, then `try_cast`.
+- The transform must emit all 8 `SILVER.ORDERS` columns (including `LOAD_TIMESTAMP`, which has no default) or `save_as_table(mode="append")` fails with a column-count mismatch — the original plan's transform only produced 7.
+- The task is created but deliberately left **`SUSPENDED`** by default — the versioned migration does not auto-`RESUME` it, so a recurring/cost-incurring job never silently starts as a side effect of running CI/CD. Resume manually once verified.
+
+### Phase 5 (Gold)
+
+- The plan never has a step that creates `SILVER.CUSTOMERS` / `SILVER.PRODUCTS`, despite `dimensions.sql` selecting from them. Added both as small seeded "mock master data" tables, since this project's only real source is order events (no upstream CRM/PIM feed) — worth calling out explicitly as a simplification in an interview.
+- `dimensions.sql`'s `/* other descriptive attributes */` placeholder was filled in with real columns (name/email/region/segment for customers; name/category/brand/price for products) instead of shipping a "degenerate" ID-only dimension.
+
+### Phase 6 (Optimization)
+
+- With no production data volume yet, Query Profile/spillage/clustering-depth analysis isn't meaningful (an empty or near-empty table won't spill or need pruning). Split the phase in two: data-independent config (Resource Monitor, warehouse sizing/auto-suspend — already doable) vs. data-dependent analysis (Query Profile, `SYSTEM$CLUSTERING_INFORMATION`), which needs synthetic bulk data loaded first to produce a meaningful signal.
+
+### Phase 7 (CI/CD) — significant restructure
+
+- Replaced ad-hoc `snow sql -f` execution with **`schemachange`** (Snowflake Labs). All `sql/**/*.sql` files were renamed to the versioned convention `V<major>.<minor>__description.sql` (e.g. `V1.1__raw_events.sql`), plus one repeatable `R__column_comments.sql`. schemachange scans subfolders recursively and orders purely by version number, tracked in `RAW_DB.SCHEMACHANGE.CHANGE_HISTORY`.
+- Added `schemachange-config.yml` — reuses the same `connections.toml` the `snow` CLI already uses locally, so no duplicated credentials.
+- Scaffolded `.github/workflows/ci.yml` (lint → pytest → `schemachange --dry-run` → `terraform plan`) and `cd.yml` (`terraform apply` → `schemachange deploy`). Both need an RSA key pair registered on a Snowflake service user for CI, since the SSO/browser auth used locally can't run headless.
+- Added `.sqlfluff` (with `-- noqa` markers around the one genuinely unparseable `PUT` client command) and `.gitignore` — neither existed in the original plan.
+
+### Phase 8 — fully implemented (not just "implicit" from using AI)
+
+- `sql/R__column_comments.sql`: table/column `COMMENT`s across Bronze/Silver/Gold, applied via a schemachange repeatable script.
+- `scripts/generate_data_dictionary.py`: queries `INFORMATION_SCHEMA.TABLES`/`COLUMNS` across both databases and regenerates `docs/data_dictionary.md` — the concrete version of the plan's "can even script an export" suggestion.
+
+---
+
 ## Phase 9 — Wrap-Up: How to Present This in an Interview
 
 Use this table as your talking-points cheat sheet:

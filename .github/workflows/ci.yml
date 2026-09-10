@@ -25,7 +25,7 @@ jobs:
 
       - name: Dry-run Snowflake schema changes
         run: |
-          echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" > snowflake_key.p8
+          echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY_B64 }}" | base64 --decode > snowflake_key.p8
           schemachange deploy \
             --dry-run \
             -a "${{ secrets.SNOWFLAKE_ACCOUNT }}" \
